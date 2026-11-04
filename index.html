@@ -49,7 +49,16 @@ label.f b{color:var(--r)}
 .list .it:last-child{border-bottom:0}
 .it .t{font-weight:600}
 .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:#e8edf3;color:var(--pri);letter-spacing:.3px;white-space:nowrap}
-.b-app{background:#e3ecf9;color:#24508f} .b-tel{background:#e6f4f1;color:#1b7a66} .b-evt{background:#f1e8fb;color:#6b3aa6}
+.b-app{background:#e3ecf9;color:#24508f} .b-tel{background:#e6f4f1;color:#1b7a66} .b-evt{background:#f1e8fb;color:#6b3aa6} .b-ag{background:#fff0e0;color:#a65a00}
+.tile.wide{grid-column:1/-1;flex-direction:row;min-height:56px;gap:10px;font-size:14px}
+.tl{position:relative;padding-left:66px}
+.tl::before{content:"";position:absolute;left:54px;top:4px;bottom:4px;width:2px;background:var(--line)}
+.tl .ti{position:relative;margin-bottom:12px;cursor:pointer}
+.tl .ti .h{position:absolute;left:-66px;top:10px;width:46px;text-align:right;font-weight:800;color:var(--pri);font-variant-numeric:tabular-nums;font-size:13px}
+.tl .ti::before{content:"";position:absolute;left:-17px;top:13px;width:10px;height:10px;border-radius:50%;background:var(--pri2);border:2px solid var(--bg)}
+.tl .ti.ag::before{background:#d98a1f} .tl .ti.done::before{background:var(--g)}
+.tl .ti .bx{background:#fff;border-radius:12px;padding:10px 12px;box-shadow:0 1px 3px rgba(20,30,50,.07)}
+.tl .sep{margin:16px 0 10px -66px;font-size:12px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
 .b-done{background:var(--gbg);color:var(--g)} .b-wait{background:var(--ybg);color:var(--y)} .b-rip{background:#eceff3;color:var(--mut)}
 .b-pro{background:var(--acc);color:#3b2d00}
 .time{font-variant-numeric:tabular-nums;font-weight:700;color:var(--pri);min-width:44px}
@@ -224,11 +233,12 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;'
 function q(s){ return "'"+String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")+"'"; } // argomento sicuro per onclick
 const $ = id => document.getElementById(id);
 function toast(t){ const el=$('toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove('on'),2200); }
-const TYPE = {app:'APPUNTAMENTO', tel:'CONTATTO', evt:'EVENTO'};
+const TYPE = {app:'APPUNTAMENTO', tel:'CONTATTO', evt:'EVENTO', ag:'AGENDA'};
+const SHORT = {app:'APP', tel:'TEL', evt:'EVT', ag:'AG'};
 const client = id => db.clients.find(c=>c.id===id);
 const event_ = id => db.events.find(e=>e.id===id);
 function cname(c){ return c ? (c.cognome+' '+(c.nome||'')).trim() : '—'; }
-function sortEv(a,b){ return (a.date+(a.time||'99:99')).localeCompare(b.date+(b.time||'99:99')); }
+function sortEv(a,b){ const k=e=>e.date+(e.type==='ag'?'~':(e.time||'99:99')); const x=k(a), y=k(b); return x<y?-1:x>y?1:0; }
 function evOf(date){ return db.events.filter(e=>e.date===date).sort(sortEv); }
 function pendingPast(){ return db.events.filter(e=>e.type!=='evt' && e.status==='open' && e.date<today()).sort(sortEv); }
 
@@ -292,13 +302,14 @@ const VIEWS = {};
 VIEWS.home = () => {
   const t = today();
   const evs = evOf(t);
-  const appEvt = evs.filter(e=>e.type!=='tel');
+  const appEvt = evs.filter(e=>e.type==='app'||e.type==='evt');
+  const ags = evs.filter(e=>e.type==='ag' && e.status!=='riprog');
   const tels = evs.filter(e=>e.type==='tel');
   const tasks = dueTasks();
   const past = pendingPast();
   const daysNoBk = db.meta.lastBackup ? diffDays(t, db.meta.lastBackup) : null;
   let ban = '';
-  if(past.length) ban += `<div class="banner r" onclick="chiudiGiornata(true)">⚠️ <div class="grow"><b>${past.length} appuntamenti/contatti</b> dei giorni scorsi da esitare.</div><button class="btn sm del">Esita</button></div>`;
+  if(past.length) ban += `<div class="banner r" onclick="chiudiGiornata(true)">⚠️ <div class="grow"><b>${past.length} impegni</b> (appuntamenti, contatti, agenda) dei giorni scorsi da esitare.</div><button class="btn sm del">Esita</button></div>`;
   if(daysNoBk===null ? db.clients.length>0 : daysNoBk>7) ban += `<div class="banner y" onclick="backupModal()">💾 <div class="grow">${daysNoBk===null?'Nessun backup ancora eseguito.':'Ultimo backup '+daysNoBk+' giorni fa.'}</div><button class="btn sm warn">Backup</button></div>`;
   return hdr('JOB', {right:`<button class="ib" onclick="backupModal()" aria-label="Export / Import">💾</button>`}) + `<div class="wrap">
     <div class="mut" style="margin:-2px 0 10px;font-weight:600">${fdl(t)}</div>
@@ -309,10 +320,14 @@ VIEWS.home = () => {
       <button class="tile" onclick="go('psearch')"><span class="ic">🔎</span>RICERCA PRODOTTI</button>
       <button class="tile" onclick="go('tasks')"><span class="ic">✅</span>TASK</button>
       <button class="tile" onclick="clientForm()"><span class="ic">➕</span>NUOVO</button>
-      <button class="tile close" onclick="chiudiGiornata(false)"><span class="ic">🌙</span>CHIUDI GIORNATA</button>
+      <button class="tile" onclick="go('agenda',{w:monday(today())})"><span class="ic">📒</span>AGENDA</button>
+      <button class="tile close wide" onclick="chiudiGiornata(false)"><span class="ic">🌙</span>CHIUDI GIORNATA</button>
     </div>
     <div class="card"><h3>📅 Appuntamenti / Eventi <span class="cnt">${appEvt.length}</span></h3>
       ${appEvt.length? `<div class="list">${appEvt.map(evRow).join('')}</div>` : '<div class="empty">Nessun appuntamento o evento oggi.</div>'}
+    </div>
+    <div class="card"><h3>📒 Agenda di oggi <span class="cnt">${ags.length}</span></h3>
+      ${ags.length? `<div class="list">${ags.map(agRow).join('')}</div>` : '<div class="empty">Nessuna operazione in agenda oggi.</div>'}
     </div>
     <div class="card"><h3>📞 Contatti e Task <span class="cnt">${tels.length+tasks.length}</span></h3>
       ${tels.length? `<div class="list">${tels.map(evRow).join('')}</div>` : '<div class="empty">Nessuna telefonata da fare oggi.</div>'}
@@ -330,6 +345,11 @@ function evRow(e){
     <div class="grow"><div><span class="badge b-${e.type}">${TYPE[e.type]}</span> ${st}</div>
       <div class="t" style="margin-top:3px">${c?`<span class="link" onclick="event.stopPropagation();go('client',{id:${q(c.id)},tab:'note'})">${esc(cname(c))}</span>`:esc(e.title||'')}</div>
       ${e.note?`<div class="mut">${esc(firstLine(e.note))}</div>`:''}</div><span class="go">›</span></div>`;
+}
+function agRow(e){
+  const st = e.status==='closed' ? '<span class="badge b-done">✓ ESEGUITA</span>' : e.status==='riprog' ? '<span class="badge b-rip">RIPROG.</span>' : '';
+  return `<div class="it" onclick="evDetail(${q(e.id)})"><span class="badge b-ag">AGENDA</span>
+    <div class="grow"><div class="t" style="white-space:pre-wrap">${esc(firstLine(e.title))}</div>${st}</div><span class="go">›</span></div>`;
 }
 function firstLine(s){ s=String(s||''); const l=s.split('\n')[0]; return l.length>70?l.slice(0,70)+'…':l; }
 
@@ -658,21 +678,23 @@ VIEWS.cal = s => {
     <div style="text-align:center;margin:-4px 0 10px"><button class="btn sm sec" onclick="setP({w:monday(today())})">Oggi</button></div>
     <div class="card week">${days.map(d=>{
       const ev=evOf(d).filter(e=>e.status!=='riprog'); const dd=parse(d);
-      return `<div class="day ${d===t?'today':''}" onclick="go('day',{d:${q(d)}})"><div class="dn"><small>${GG[dd.getDay()]}</small><b>${dd.getDate()}</b></div>
-        <div class="items">${ev.length? ev.slice(0,4).map(e=>`<div><span class="badge b-${e.type}" style="font-size:10px">${e.type==='app'?'APP':e.type==='tel'?'TEL':'EVT'}</span> ${e.time||''} ${esc(e.clientId?cname(client(e.clientId)):e.title)} ${e.status==='closed'?'✓':''}</div>`).join('')+(ev.length>4?`<div class="mut">+ altri ${ev.length-4}</div>`:'') : '<div class="mut">—</div>'}</div></div>`;
+      return `<div class="day ${d===t?'today':''}" onclick="go('day',{d:${q(d)}})"><div class="dn"><small>${GG[dd.getDay()]}</small><b>${dd.getDate()}</b><button class="btn sm sec" style="margin-top:6px;padding:3px 6px;font-size:10px" onclick="event.stopPropagation();go('tl',{d:${q(d)}})">VIEW</button></div>
+        <div class="items">${ev.length? ev.slice(0,4).map(e=>`<div><span class="badge b-${e.type}" style="font-size:10px">${SHORT[e.type]}</span> ${e.time||''} ${esc(e.clientId?cname(client(e.clientId)):e.title)} ${e.status==='closed'?'✓':''}</div>`).join('')+(ev.length>4?`<div class="mut">+ altri ${ev.length-4}</div>`:'') : '<div class="mut">—</div>'}</div></div>`;
     }).join('')}</div>
   </div><button class="btn fab" onclick="bookForm({date:today()})">＋ PRENOTA</button>`;
 };
 VIEWS.day = s => {
   const ev = evOf(s.d);
-  const a = ev.filter(e=>e.type!=='tel'), t = ev.filter(e=>e.type==='tel');
-  return hdr(fdl(s.d)) + `<div class="wrap">
+  const a = ev.filter(e=>e.type==='app'||e.type==='evt'), t = ev.filter(e=>e.type==='tel'), g = ev.filter(e=>e.type==='ag');
+  return hdr(fdl(s.d), {right:`<button class="ib" style="font-size:13px;font-weight:800;padding:0 10px" onclick="go('tl',{d:${q(s.d)}})">VIEW</button>`}) + `<div class="wrap">
     <div class="card"><h3>📅 Appuntamenti / Eventi <span class="cnt">${a.length}</span></h3>${a.length?`<div class="list">${a.map(evRow).join('')}</div>`:'<div class="empty">Nessuno.</div>'}</div>
     <div class="card"><h3>📞 Contatti <span class="cnt">${t.length}</span></h3>${t.length?`<div class="list">${t.map(evRow).join('')}</div>`:'<div class="empty">Nessuno.</div>'}</div>
+    <div class="card"><h3>📒 Agenda <span class="cnt">${g.length}</span></h3>${g.length?`<div class="list">${g.map(agRow).join('')}</div>`:'<div class="empty">Nessuna.</div>'}</div>
   </div><button class="btn fab" onclick="bookForm({date:${q(s.d)}})">＋ PRENOTA</button>`;
 };
 function evDetail(id){
   const e=event_(id); if(!e) return;
+  if(e.type==='ag') return agDetail(e);
   const c=e.clientId?client(e.clientId):null;
   const n=c&&c.notes.find(x=>x.id===e.noteId);
   const st = e.type==='evt'?'':e.status==='closed'?'<span class="badge b-done">ESITATO</span>':e.status==='riprog'?'<span class="badge b-rip">RIPROGRAMMATO</span>':'<span class="badge b-wait">DA ESITARE</span>';
@@ -694,10 +716,87 @@ function closeEv(id){
 }
 function reschedule(id, after){
   const e=event_(id);
+  if(e.type==='ag') return agForm({rescheduleOf:id, text:e.title, date:addDays(today(),1), after, replace:!after});
   BF=null;
   bookForm({type:e.type, types:[e.type], clientId:e.clientId, lockClient:true, note:e.note, date:addDays(today(),1), time:e.time, rescheduleOf:id, after, replace:!after});
 }
 function delEvt(id){ confirmBox('Eliminare l\'evento?', ()=>{ db.events=db.events.filter(x=>x.id!==id); save(); closeAllModals(true); render(); }); }
+
+/* ---------- AGENDA ---------- */
+VIEWS.agenda = s => {
+  const w = s.w || monday(today()); const t=today();
+  const days = [...Array(7)].map((_,i)=>addDays(w,i)); const end=days[6];
+  const lbl = parse(w).getDate()+' '+(parse(w).getMonth()!==parse(end).getMonth()?MM[parse(w).getMonth()].slice(0,3)+' ':'')+'– '+parse(end).getDate()+' '+MM[parse(end).getMonth()]+' '+parse(end).getFullYear();
+  return hdr('Agenda') + `<div class="wrap">
+    <div class="row" style="margin-bottom:10px"><button class="btn sec sm" onclick="setP({w:addDays(cur().w,-7)})">‹</button>
+      <div class="grow" style="text-align:center;font-weight:700">${lbl}</div>
+      <button class="btn sec sm" onclick="setP({w:addDays(cur().w,7)})">›</button></div>
+    <div style="text-align:center;margin:-4px 0 10px"><button class="btn sm sec" onclick="setP({w:monday(today())})">Oggi</button></div>
+    <div class="card week">${days.map(d=>{
+      const ag=evOf(d).filter(e=>e.type==='ag'&&e.status!=='riprog'); const dd=parse(d);
+      return `<div class="day ${d===t?'today':''}" onclick="agForm({date:${q(d)}})"><div class="dn"><small>${GG[dd.getDay()]}</small><b>${dd.getDate()}</b></div>
+        <div class="items">${ag.length? ag.map(e=>`<div onclick="event.stopPropagation();evDetail(${q(e.id)})" style="cursor:pointer">${e.status==='closed'?'<span class="s-g">✓</span>':'•'} ${esc(firstLine(e.title))}</div>`).join('') : '<div class="mut">—</div>'}</div></div>`;
+    }).join('')}</div>
+    <div class="mut" style="text-align:center">Tocca un giorno per aggiungere un'operazione in quella data.</div>
+  </div><button class="btn fab" onclick="agForm({date:today()})">＋ AGGIUNGI</button>`;
+};
+let AF=null;
+function agForm(o){
+  AF=Object.assign({date:today(), text:''}, o);
+  const e = AF.id ? event_(AF.id) : null;
+  const html = mh(AF.rescheduleOf?'Riprogramma operazione':e?'Modifica operazione':'Nuova operazione in agenda') + `
+    <label class="f">Operazione da eseguire <b>*</b></label><textarea id="agT" data-af placeholder="Scrivi liberamente…">${esc(e?e.title:AF.text)}</textarea>
+    <label class="f">Data di esecuzione <b>*</b></label><input type="date" id="agD" value="${e?e.date:AF.date}">
+    <div class="mut" style="margin-top:6px">L'operazione compare anche nel calendario generale.</div>
+    <div class="acts">${e?`<button class="btn del" onclick="confirmBox('Eliminare l\\'operazione?',()=>{db.events=db.events.filter(x=>x.id!==${q(e.id)});save();closeAllModals(true);render();})">Elimina</button>`:''}<button class="btn" onclick="agSave()">Salva</button></div>`;
+  if(AF.replace && modals.length) replaceModal(html); else openModal(html);
+}
+function agSave(){
+  const text=val('agT'), date=val('agD');
+  if(!text) return toast('Scrivi l\'operazione'); if(!date) return toast('Indica la data di esecuzione');
+  const o=AF; AF=null;
+  if(o.id){ Object.assign(event_(o.id), {title:text, date}); }
+  else{
+    db.events.push({id:uid(), type:'ag', date, time:'', clientId:null, title:text, note:'', status:'open', created:Date.now()});
+    if(o.rescheduleOf){ const old=event_(o.rescheduleOf); if(old){ old.status='riprog'; old.rip={date}; old.esito='RIPROGRAMMATO'; } }
+  }
+  save(); closeModal(); render();
+  toast(o.rescheduleOf?'Riprogrammata al '+fd(date):'Salvata in agenda e in calendario');
+  if(o.after) o.after();
+}
+function agDetail(e){
+  const st = e.status==='closed'?'<span class="badge b-done">ESEGUITA</span>':e.status==='riprog'?'<span class="badge b-rip">RIPROGRAMMATA</span>':'<span class="badge b-wait">DA ESITARE</span>';
+  openModal(mh(`<span class="badge b-ag">AGENDA</span> ${st}`) + `
+    <div style="font-weight:700;margin:8px 0">${fdl(e.date)}</div>
+    <div style="white-space:pre-wrap;font-size:16px">${esc(e.title)}</div>
+    ${e.esito&&e.esito!=='RIPROGRAMMATO'?`<label class="f">Esito</label><div style="white-space:pre-wrap">${esc(e.esito)}</div>`:''}
+    ${e.rip?`<p class="mut">↪ Riprogrammata al ${fd(e.rip.date)}</p>`:''}
+    <div class="acts">
+      ${e.status==='open'?`<button class="btn ok" onclick="agEsito(${q(e.id)})">ESITA</button><button class="btn warn" onclick="reschedule(${q(e.id)})">RIPROGRAMMA</button>`:''}
+      <button class="btn sec" onclick="closeModal();agForm({id:${q(e.id)}})">✎ Modifica</button>
+    </div>`);
+}
+function agEsito(id){
+  const e=event_(id);
+  replaceModal(mh('Esito operazione')+`<div class="mut" style="white-space:pre-wrap">${esc(e.title)}</div>
+    <label class="f">Esito <b>*</b></label><textarea id="agE" data-af>${esc(e.esito||'')}</textarea>
+    <div class="acts"><button class="btn ok" onclick="(function(){const t=val('agE');if(!t)return toast('Scrivi l\\'esito');const e=event_(${q(id)});e.esito=t;e.status='closed';save();closeModal();render();toast('Esito salvato');})()">Salva esito</button></div>`);
+  setTimeout(()=>$('agE')&&$('agE').focus(),50);
+}
+/* VIEW: timeline della giornata */
+VIEWS.tl = s => {
+  const ev = evOf(s.d).filter(e=>e.status!=='riprog');
+  const timed = ev.filter(e=>e.type!=='ag'), ag = ev.filter(e=>e.type==='ag');
+  const item = e => { const c=e.clientId?client(e.clientId):null; const done=e.status==='closed';
+    return `<div class="ti ${e.type==='ag'?'ag':''} ${done?'done':''}" onclick="evDetail(${q(e.id)})">${e.type==='ag'?'':`<span class="h">${e.time||'—'}</span>`}
+      <div class="bx"><div><span class="badge b-${e.type}">${TYPE[e.type]}</span> ${done?'<span class="badge b-done">✓</span>':''}</div>
+      <div class="t" style="margin-top:4px;white-space:pre-wrap">${e.type==='ag'?esc(e.title):c?esc(cname(c)):esc(e.title)}</div>
+      ${e.type!=='ag'&&e.note?`<div class="mut">${esc(firstLine(e.note))}</div>`:''}${c&&c.cell?`<div class="mut">📞 ${esc(c.cell)}</div>`:''}</div></div>`; };
+  return hdr('VIEW · '+fdl(s.d)) + `<div class="wrap">
+    <div class="row" style="margin-bottom:12px"><button class="btn sec sm" onclick="setP({d:addDays(cur().d,-1)})">‹ Giorno prima</button><div class="grow"></div><button class="btn sec sm" onclick="setP({d:addDays(cur().d,1)})">Giorno dopo ›</button></div>
+    ${ev.length ? `<div class="tl">${timed.map(item).join('')}${ag.length?`<div class="sep">📒 Da agenda (senza orario)</div>${ag.map(item).join('')}`:''}</div>` : '<div class="card empty">Nessun impegno in questa giornata.</div>'}
+  </div>`;
+};
 
 /* ---------- 6) CHIUDI GIORNATA ---------- */
 function chiudiGiornata(forcedOnly){
@@ -714,10 +813,10 @@ function cgHtml(){
   return mh(`Chiudi giornata <span class="mut" style="font-weight:600">${g.i+1} di ${g.total}</span>`, g.locked) +
     (g.locked?`<div class="banner r" style="margin-top:8px">⚠️ Ci sono impegni non esitati dei giorni scorsi: l'esito è obbligatorio.</div>`:'') + `
     <div class="card" style="margin-top:10px"><div><span class="badge b-${e.type}">${TYPE[e.type]}</span> ${late?'<span class="badge" style="background:var(--rbg);color:var(--r)">ARRETRATO</span>':''}</div>
-      <div style="font-weight:800;font-size:16px;margin-top:6px">${esc(cname(c))}</div>
+      <div style="font-weight:800;font-size:16px;margin-top:6px;white-space:pre-wrap">${e.type==='ag'?esc(e.title):esc(cname(c))}</div>
       <div class="mut">${fdl(e.date)}${e.time?' ore '+e.time:''}${c&&c.cell?' · '+esc(c.cell):''}</div>
       ${e.note?`<label class="f">Oggetto primario</label><div style="white-space:pre-wrap">${esc(e.note)}</div>`:''}</div>
-    <label class="f">Esito <b>*</b></label><textarea id="cgT" data-af placeholder="Com'è andato?">${esc(n&&n.esito||'')}</textarea>
+    <label class="f">Esito <b>*</b></label><textarea id="cgT" data-af placeholder="${e.type==='ag'?'Eseguita? Come è andata?':'Com\'è andato?'}">${esc(n&&n.esito||'')}</textarea>
     <div class="acts"><button class="btn warn" onclick="cgRip()">RIPROGRAMMA</button><button class="btn ok" onclick="cgSave()">SALVA ESITO</button></div>
     ${g.locked?'':'<div style="text-align:center;margin-top:10px"><button class="btn sm sec" onclick="closeModal()">Continua più tardi</button></div>'}`;
 }
