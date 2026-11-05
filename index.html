@@ -311,7 +311,7 @@ VIEWS.home = () => {
   let ban = '';
   if(past.length) ban += `<div class="banner r" onclick="chiudiGiornata(true)">⚠️ <div class="grow"><b>${past.length} impegni</b> (appuntamenti, contatti, agenda) dei giorni scorsi da esitare.</div><button class="btn sm del">Esita</button></div>`;
   if(daysNoBk===null ? db.clients.length>0 : daysNoBk>7) ban += `<div class="banner y" onclick="backupModal()">💾 <div class="grow">${daysNoBk===null?'Nessun backup ancora eseguito.':'Ultimo backup '+daysNoBk+' giorni fa.'}</div><button class="btn sm warn">Backup</button></div>`;
-  return hdr('JOB', {right:`<button class="ib" onclick="backupModal()" aria-label="Export / Import">💾</button>`}) + `<div class="wrap">
+  return hdr('JOB', {right:`<button class="ib" onclick="calModal()" aria-label="Esporta calendario" style="margin-right:6px">📆</button><button class="ib" onclick="backupModal()" aria-label="Export / Import">💾</button>`}) + `<div class="wrap">
     <div class="mut" style="margin:-2px 0 10px;font-weight:600">${fdl(t)}</div>
     ${ban}
     <div class="tiles">
@@ -1093,6 +1093,70 @@ $('fileImp').addEventListener('change', ev=>{
   rd.onload=()=>restoreData(rd.result);
   rd.readAsText(f);
 });
+
+/* ---------- ESPORTA CALENDARIO (.ics per Google Calendar) ---------- */
+// Ogni impegno ha un UID fisso: reimportando il file in Google Calendar gli eventi già presenti vengono aggiornati, non duplicati.
+const ICS_TZ = ['BEGIN:VTIMEZONE','TZID:Europe/Rome',
+  'BEGIN:DAYLIGHT','TZOFFSETFROM:+0100','TZOFFSETTO:+0200','TZNAME:CEST','DTSTART:19700329T020000','RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU','END:DAYLIGHT',
+  'BEGIN:STANDARD','TZOFFSETFROM:+0200','TZOFFSETTO:+0100','TZNAME:CET','DTSTART:19701025T030000','RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU','END:STANDARD',
+  'END:VTIMEZONE'];
+function icsEsc(t){ return String(t==null?'':t).replace(/\\/g,'\\\\').replace(/;/g,'\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
+function icsFold(l){ const te=new TextEncoder(); let out='', n=0; for(const ch of l){ const b=te.encode(ch).length; if(n+b>74){ out+='\r\n '; n=1; } out+=ch; n+=b; } return out; }
+function icsDay(d){ return d.replace(/-/g,''); }
+function icsLocal(d,t){ return icsDay(d)+'T'+t.replace(':','')+'00'; }
+function icsAddMin(d,t,min){ const [h,m]=t.split(':').map(Number); const x=parse(d); x.setHours(h,m+min,0,0); return [ds(x), pad(x.getHours())+':'+pad(x.getMinutes())]; }
+function icsEvent(o){
+  // o: {uid, date, time?, min?, title, desc?, cancelled?}
+  const L=['BEGIN:VEVENT','UID:'+o.uid,'DTSTAMP:'+new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+/,''),
+    'SEQUENCE:'+Math.floor(Date.now()/1000-1.7e9)];
+  if(o.time){ const [d2,t2]=icsAddMin(o.date,o.time,o.min||60); L.push('DTSTART;TZID=Europe/Rome:'+icsLocal(o.date,o.time),'DTEND;TZID=Europe/Rome:'+icsLocal(d2,t2)); }
+  else L.push('DTSTART;VALUE=DATE:'+icsDay(o.date),'DTEND;VALUE=DATE:'+icsDay(addDays(o.date,1)),'TRANSP:TRANSPARENT');
+  L.push('SUMMARY:'+icsEsc(o.title));
+  if(o.desc) L.push('DESCRIPTION:'+icsEsc(o.desc));
+  if(o.cancelled) L.push('STATUS:CANCELLED');
+  L.push('END:VEVENT');
+  return L;
+}
+function buildIcs(withPast){
+  const from = withPast ? '0000' : addDays(today(),-7);
+  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//loki4683//JOB//IT','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:JOB','X-WR-TIMEZONE:Europe/Rome',...ICS_TZ];
+  let n=0;
+  for(const e of db.events){
+    if(!e.date || e.date<from) continue;
+    const c = e.clientId ? client(e.clientId) : null;
+    const who = c ? cname(c) : '';
+    const desc = [];
+    if(e.type==='ag'){ desc.push(e.title||''); }
+    else { if(e.note) desc.push(e.note); if(c&&c.cell) desc.push('Cell: '+c.cell); }
+    if(e.status==='closed') desc.push('✓ Esitato'+(e.esito&&e.esito!=='RIPROGRAMMATO'?': '+e.esito:''));
+    const title = e.type==='ag' ? 'AGENDA · '+firstLine(e.title) : e.type==='evt' ? 'EVENTO · '+(e.title||who) : SHORT[e.type]+' · '+(who||e.title||'');
+    L.push(...icsEvent({uid:'job-'+e.id+'@loki4683.github.io', date:e.date, time:e.type==='ag'?'':e.time, min:e.type==='tel'?15:60,
+      title:(e.status==='closed'?'✓ ':'')+title, desc:desc.join('\n'), cancelled:e.status==='riprog'}));
+    n++;
+  }
+  for(const co of db.collabs) for(const t of co.tasks||[]){
+    if(!t.due || t.due<from) continue;
+    L.push(...icsEvent({uid:'job-task-'+t.id+'@loki4683.github.io', date:t.due, title:'TASK '+co.name+' · '+firstLine(t.text),
+      desc:t.text+'\nAssegnata il '+fd(t.assigned), cancelled:!!t.done}));
+    n++;
+  }
+  L.push('END:VCALENDAR');
+  return {txt:L.map(icsFold).join('\r\n')+'\r\n', n};
+}
+function calModal(){
+  openModal(mh('📆 Esporta calendario')+`
+    <p>Crea un file <b>.ics</b> con appuntamenti, contatti, eventi, agenda e task, da importare in Google Calendar.</p>
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" id="icsPast"> Includi anche gli impegni passati</label>
+    <div class="choice"><button class="btn ok" onclick="doIcs()">⬇ Scarica file calendario</button>
+    <a class="btn sec" href="https://calendar.google.com/calendar/r/settings/export" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">Apri Google Calendar › Importa</a></div>
+    <p class="mut" style="font-size:12px">Da Google Calendar (sito, non l'app): <b>Importa</b> › scegli il file “JOB calendario.ics” › scegli il calendario › Importa. Ogni volta che vuoi aggiornare, riscarica e reimporta: gli impegni già presenti vengono aggiornati senza doppioni, quelli riprogrammati e le task eseguite vengono tolti.</p>`);
+}
+function doIcs(){
+  const {txt,n}=buildIcs($('icsPast')&&$('icsPast').checked);
+  if(!n) return toast('Nessun impegno da esportare');
+  downloadBlob(new Blob([txt],{type:'text/calendar;charset=utf-8'}), 'JOB calendario.ics');
+  toast(n+' impegni esportati');
+}
 
 /* ===================== AVVIO ===================== */
 load();
