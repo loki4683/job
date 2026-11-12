@@ -859,9 +859,26 @@ function goalCard(g, compact){
   </div>`;
 }
 function goalsHomeBox(){
-  const gs=(db.goals||[]).filter(g=>(g.per==='s'||g.per==='m') && g.scad>=today());
-  if(!gs.length) return '';
-  return `<div class="card"><h3>🎯 Obiettivi <span class="cnt">${gs.length}</span></h3><div class="list">${gs.map(g=>goalCard(g,true)).join('')}</div></div>`;
+  const act=(db.goals||[]).filter(g=>g.scad>=today() && (g.start||g.created)<=today());
+  const gs=act.filter(g=>g.per==='g'||g.per==='s').sort((a,b)=>(a.per===b.per?0:a.per==='g'?-1:1));
+  const ms=act.filter(g=>g.per==='m');
+  let h='';
+  if(gs.length) h+=`<div class="card" style="border:2px solid var(--acc)"><h3>🔥 Obiettivi di oggi e della settimana <span class="cnt">${gs.length}</span></h3><div class="list">${gs.map(goalPeriodCard).join('')}</div></div>`;
+  if(ms.length) h+=`<div class="card"><h3>🎯 Obiettivi mensili <span class="cnt">${ms.length}</span></h3><div class="list">${ms.map(g=>goalCard(g,true)).join('')}</div></div>`;
+  return h;
+}
+/* evidenza del periodo corrente (oggi / questa settimana) */
+function goalPeriodCard(g){
+  const st=gStats(g);
+  const pp = st.ms.map(m=>m.perT?m.curDone/m.perT*100:0);
+  const kp = kOf(pp.length?Math.min(...pp):null);
+  return `<div class="it goal k-${kp}" onclick="goalOpen(${q(g.id)})" style="display:block">
+    <div class="row"><div class="grow t">${esc(g.title)}</div><span class="badge ${g.per==='g'?'b-ag':'b-app'}">${PERU[g.per].toUpperCase()}</span></div>
+    ${st.ms.map((m,i)=>`<div class="row" style="margin-top:6px"><div class="grow"><div class="bar" style="height:12px"><i class="c-${kOf(pp[i])}" style="width:${Math.min(100,pp[i]).toFixed(1)}%"></i></div></div>
+      <span class="pct k-${kOf(pp[i])}" style="min-width:44px;text-align:right">${nf(pp[i],0)}%</span></div>
+      <div style="font-size:14px"><b>${fmtV(m.curDone,m.u)}</b> su ${fmtV(m.perT,m.u)} ${g.per==='g'?'oggi':'questa settimana'}${m.curDone<m.perT?` · <span class="mut">mancano ${fmtV(m.perT-m.curDone,m.u)}</span>`:' · <span class="s-g">✓ raggiunto</span>'}</div>`).join('')}
+    <div class="mut" style="font-size:12px;margin-top:4px">Andamento complessivo: <span class="pct k-${st.k}">${st.pct!=null?nf(st.pct,0)+'%':'—'}</span> · totale ${st.ms.map(m=>fmtV(m.done,m.u)+'/'+fmtV(m.target,m.u)).join(' · ')} · scad. ${fd(g.scad)}</div>
+  </div>`;
 }
 VIEWS.scad = () => {
   const ga=(db.goals||[]).filter(g=>g.scad>=today()).length, wa=(db.works||[]).filter(w=>!w.done).length;
