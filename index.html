@@ -50,6 +50,15 @@ label.f b{color:var(--r)}
 .it .t{font-weight:600}
 .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:#e8edf3;color:var(--pri);letter-spacing:.3px;white-space:nowrap}
 .b-app{background:#e3ecf9;color:#24508f} .b-tel{background:#e6f4f1;color:#1b7a66} .b-evt{background:#f1e8fb;color:#6b3aa6} .b-ag{background:#fff0e0;color:#a65a00}
+.bar{height:8px;border-radius:6px;background:#e8edf3;overflow:hidden;margin:4px 0 2px}
+.bar i{display:block;height:100%;border-radius:6px}
+.c-g{background:var(--g)} .c-y{background:#e0a800} .c-r{background:var(--r)} .c-n{background:var(--gr)}
+.goal{border-left:5px solid var(--gr);padding-left:10px}
+.goal.k-g{border-left-color:var(--g)} .goal.k-y{border-left-color:#e0a800} .goal.k-r{border-left-color:var(--r)}
+.pct{font-weight:800;font-variant-numeric:tabular-nums}
+.pct.k-g{color:var(--g)} .pct.k-y{color:var(--y)} .pct.k-r{color:var(--r)}
+.big2{display:grid;gap:12px}
+.big2 .taskbtn{padding:22px 16px;font-size:18px}
 .tile.wide{grid-column:1/-1;flex-direction:row;min-height:56px;gap:10px;font-size:14px}
 .tl{position:relative;padding-left:66px}
 .tl::before{content:"";position:absolute;left:54px;top:4px;bottom:4px;width:2px;background:var(--line)}
@@ -204,7 +213,7 @@ function pathLabel(id){ return id.split(' > ').join(' › '); }
 /* ===================== DATI (solo sul telefono) ===================== */
 const KEY = 'job_db_v1';
 let db;
-function blank(){ return {clients:[], events:[], collabs:[], searches:[], meta:{lastBackup:null, created:today()}}; }
+function blank(){ return {clients:[], events:[], collabs:[], searches:[], goals:[], works:[], meta:{lastBackup:null, created:today()}}; }
 function load(){
   try{ db = JSON.parse(localStorage.getItem(KEY)) || blank(); }catch(e){ db = blank(); }
   const b = blank(); for(const k in b) if(db[k]==null) db[k]=b[k];
@@ -321,11 +330,13 @@ VIEWS.home = () => {
       <button class="tile" onclick="go('tasks')"><span class="ic">✅</span>TASK</button>
       <button class="tile" onclick="clientForm()"><span class="ic">➕</span>NUOVO</button>
       <button class="tile" onclick="go('agenda',{w:monday(today())})"><span class="ic">📒</span>AGENDA</button>
+      <button class="tile" onclick="go('scad')"><span class="ic">🎯</span>SCADENZIARIO</button>
       <button class="tile close wide" onclick="chiudiGiornata(false)"><span class="ic">🌙</span>CHIUDI GIORNATA</button>
     </div>
     <div class="card"><h3>📅 Appuntamenti / Eventi <span class="cnt">${appEvt.length}</span></h3>
       ${appEvt.length? `<div class="list">${appEvt.map(evRow).join('')}</div>` : '<div class="empty">Nessun appuntamento o evento oggi.</div>'}
     </div>
+    ${goalsHomeBox()}
     <div class="card"><h3>📒 Agenda di oggi <span class="cnt">${ags.length}</span></h3>
       ${ags.length? `<div class="list">${ags.map(agRow).join('')}</div>` : '<div class="empty">Nessuna operazione in agenda oggi.</div>'}
     </div>
@@ -757,8 +768,10 @@ function agSave(){
   const o=AF; AF=null;
   if(o.id){ Object.assign(event_(o.id), {title:text, date}); }
   else{
-    db.events.push({id:uid(), type:'ag', date, time:'', clientId:null, title:text, note:'', status:'open', created:Date.now()});
-    if(o.rescheduleOf){ const old=event_(o.rescheduleOf); if(old){ old.status='riprog'; old.rip={date}; old.esito='RIPROGRAMMATO'; } }
+    const ne={id:uid(), type:'ag', date, time:'', clientId:null, title:text, note:'', status:'open', created:Date.now()};
+    db.events.push(ne);
+    if(o.rescheduleOf){ const old=event_(o.rescheduleOf); if(old){ old.status='riprog'; old.rip={date}; old.esito='RIPROGRAMMATO';
+      if(old.workId){ ne.workId=old.workId; const w=db.works.find(x=>x.id===old.workId); if(w){ w.agId=ne.id; w.due=date; } } } }
   }
   save(); closeModal(); render();
   toast(o.rescheduleOf?'Riprogrammata al '+fd(date):'Salvata in agenda e in calendario');
@@ -797,6 +810,180 @@ VIEWS.tl = s => {
     ${ev.length ? `<div class="tl">${timed.map(item).join('')}${ag.length?`<div class="sep">📒 Da agenda (senza orario)</div>${ag.map(item).join('')}`:''}</div>` : '<div class="card empty">Nessun impegno in questa giornata.</div>'}
   </div>`;
 };
+
+/* ---------- SCADENZIARIO ---------- */
+const PER = {g:'Giornaliera', s:'Settimanale', m:'Mensile'};
+const PERU = {g:'Oggi', s:'Questa settimana', m:'Questo mese'};
+const nf = (v,dec) => Number(v||0).toLocaleString('it-IT',{maximumFractionDigits:dec==null?2:dec});
+function nPeriods(a,b,per){
+  if(b<a) return 0;
+  if(per==='g') return diffDays(b,a)+1;
+  if(per==='s') return diffDays(monday(b),monday(a))/7+1;
+  const A=parse(a), B=parse(b); return (B.getFullYear()*12+B.getMonth())-(A.getFullYear()*12+A.getMonth())+1;
+}
+function curBounds(per){
+  const t=today();
+  if(per==='g') return [t,t];
+  if(per==='s'){ const m=monday(t); return [m, addDays(m,6)]; }
+  const d=parse(t); return [ds(new Date(d.getFullYear(),d.getMonth(),1)), ds(new Date(d.getFullYear(),d.getMonth()+1,0))];
+}
+function kOf(p){ return p==null ? 'n' : p>=80 ? 'g' : p>=40 ? 'y' : 'r'; }
+function gStats(g){
+  const t=today(), start=g.start||g.created, ups=g.upd||[];
+  const per=g.per||'';
+  const N = per ? Math.max(1,nPeriods(start,g.scad,per)) : 0;
+  const el = per ? Math.min(N, Math.max(1, nPeriods(start, t<g.scad?t:g.scad, per))) : 0;
+  const [cb,ce] = per ? curBounds(per) : [null,null];
+  const ms = [];
+  [['pz','pezzi','pz'],['eu','euro','€']].forEach(([k,f,u])=>{
+    const target=Number(g[f]); if(!target) return;
+    const done=ups.reduce((a,x)=>a+Number(x[f]||0),0);
+    const fin=done/target*100;
+    const perT = per ? target/N : null;
+    const pace = per ? done/(perT*el)*100 : null;
+    const curDone = per ? ups.filter(x=>x.date>=cb&&x.date<=ce).reduce((a,x)=>a+Number(x[f]||0),0) : null;
+    ms.push({k,u,target,done,fin,perT,pace,curDone});
+  });
+  const usePace = per==='g'||per==='s';
+  const pct = ms.length ? Math.min(...ms.map(m=>usePace?m.pace:m.fin)) : null;
+  return {ms, pct, k:kOf(pct), usePace, N, el, expired: t>g.scad, done: ms.length && ms.every(m=>m.done>=m.target)};
+}
+function fmtV(v,u){ return u==='€' ? nf(v,2)+' €' : nf(v,2)+' pz'; }
+function goalCard(g, compact){
+  const st=gStats(g);
+  return `<div class="it goal k-${st.k}" onclick="goalOpen(${q(g.id)})" style="display:block">
+    <div class="row"><div class="grow t">${esc(g.title)}</div>${st.pct!=null?`<span class="pct k-${st.k}">${nf(st.pct,0)}%</span>`:''}</div>
+    <div class="mut">${g.per?PER[g.per]+' · ':''}scadenza ${fd(g.scad)}${st.expired?' · <b class="s-r">SCADUTO</b>':''}${st.done?' · <b class="s-g">RAGGIUNTO</b>':''}${st.usePace?' · colore sull\'andamento':''}</div>
+    ${st.ms.map(m=>`<div class="bar"><i class="c-${kOf(st.usePace?m.pace:m.fin)}" style="width:${Math.min(100,m.fin).toFixed(1)}%"></i></div>
+      <div class="mut" style="font-size:12px">${fmtV(m.done,m.u)} su ${fmtV(m.target,m.u)} (${nf(m.fin,0)}%)${g.per&&!compact?` · obiettivo ${PERU[g.per].toLowerCase()}: ${fmtV(m.perT,m.u)}`:''}${g.per?` · <b>${PERU[g.per]}: ${fmtV(m.curDone,m.u)} / ${fmtV(m.perT,m.u)}</b>`:''}</div>`).join('')}
+  </div>`;
+}
+function goalsHomeBox(){
+  const gs=(db.goals||[]).filter(g=>(g.per==='s'||g.per==='m') && g.scad>=today());
+  if(!gs.length) return '';
+  return `<div class="card"><h3>🎯 Obiettivi <span class="cnt">${gs.length}</span></h3><div class="list">${gs.map(g=>goalCard(g,true)).join('')}</div></div>`;
+}
+VIEWS.scad = () => {
+  const ga=(db.goals||[]).filter(g=>g.scad>=today()).length, wa=(db.works||[]).filter(w=>!w.done).length;
+  return hdr('Scadenziario') + `<div class="wrap big2">
+    <button class="taskbtn" onclick="go('goals')">🎯 OBIETTIVI<span class="n ${ga?'':'z'}">${ga}</span></button>
+    <button class="taskbtn" onclick="go('works')">🛠 IN LAVORAZIONE<span class="n ${wa?'':'z'}">${wa}</span></button></div>`;
+};
+VIEWS.goals = s => {
+  s.f = s.f || 'att';
+  let gs=[...(db.goals||[])].sort((a,b)=>a.scad.localeCompare(b.scad));
+  gs = gs.filter(g=> s.f==='att' ? g.scad>=today() : g.scad<today());
+  return hdr('Obiettivi') + `<div class="wrap">
+    <div class="seg"><button class="${s.f==='att'?'on':''}" onclick="setP({f:'att'})">Attivi</button><button class="${s.f==='old'?'on':''}" onclick="setP({f:'old'})">Scaduti</button></div>
+    <div class="card"><div class="list">${gs.length?gs.map(g=>goalCard(g)).join(''):'<div class="empty">Nessun obiettivo.</div>'}</div></div>
+    <div class="legend"><span class="s-g">≥ 80%</span><span class="s-y">40–80%</span><span class="s-r">&lt; 40%</span></div>
+  </div><button class="btn fab" onclick="goalForm()">＋ NUOVO</button>`;
+};
+function goalForm(id){
+  const g = id ? db.goals.find(x=>x.id===id) : {title:'',pezzi:'',euro:'',scad:'',per:'',start:today()};
+  openModal(mh(id?'Modifica obiettivo':'Nuovo obiettivo')+`
+    <label class="f">Titolo <b>*</b></label><input type="text" id="goT" data-af value="${esc(g.title)}">
+    <div class="row"><div class="grow"><label class="f">Numero pezzi</label><input type="text" inputmode="decimal" id="goP" value="${esc(g.pezzi)}"></div>
+    <div class="grow"><label class="f">Euro</label><input type="text" inputmode="decimal" id="goE" value="${esc(g.euro)}"></div></div>
+    <div class="row"><div class="grow"><label class="f">Inizio</label><input type="date" id="goS" value="${g.start||g.created||today()}"></div>
+    <div class="grow"><label class="f">Scadenza <b>*</b></label><input type="date" id="goD" value="${g.scad}"></div></div>
+    <label class="f">Periodicità (facoltativa)</label>
+    <select id="goR"><option value="">Nessuna</option>${Object.keys(PER).map(k=>`<option value="${k}" ${g.per===k?'selected':''}>${PER[k]}</option>`).join('')}</select>
+    <div class="mut" style="margin-top:6px">Settimanali e mensili compaiono anche nel box Obiettivi della home.</div>
+    <div class="acts">${id?`<button class="btn del" onclick="confirmBox('Eliminare l\\'obiettivo e il suo storico?',()=>{db.goals=db.goals.filter(x=>x.id!==${q(id)});save();closeAllModals(true);render();})">Elimina</button>`:''}<button class="btn" onclick="goalSave(${id?q(id):'null'})">Salva</button></div>`);
+}
+const numv = id => { const v=val(id).replace(/\./g,'').replace(',','.'); return v===''?'':(isNaN(Number(v))?NaN:Number(v)); };
+function goalSave(id){
+  const title=val('goT'), scad=val('goD'), start=val('goS')||today(), pezzi=numv('goP'), euro=numv('goE'), per=val('goR');
+  if(!title) return toast('Il titolo è obbligatorio'); if(!scad) return toast('Indica la scadenza');
+  if(Number.isNaN(pezzi)||Number.isNaN(euro)) return toast('Pezzi ed euro devono essere numeri');
+  if(scad<start) return toast('La scadenza è prima dell\'inizio');
+  const d={title, scad, start, pezzi, euro, per};
+  if(id) Object.assign(db.goals.find(x=>x.id===id), d); else db.goals.push(Object.assign({id:uid(), created:today(), upd:[]}, d));
+  save(); closeModal(); render(); toast('Obiettivo salvato');
+}
+function goalOpen(id){
+  const g=db.goals.find(x=>x.id===id); const st=gStats(g);
+  const ups=[...(g.upd||[])].sort((a,b)=>b.date.localeCompare(a.date)||(b.ts||0)-(a.ts||0));
+  const html = mh('🎯 '+esc(g.title)) + `<div class="card" style="margin-top:8px">${goalCard(g).replace(/onclick="goalOpen\([^)]*\)"/,'')}</div>
+    <div class="card"><h3>Aggiorna</h3>
+      <div class="row"><div class="grow"><label class="f">Data</label><input type="date" id="guD" value="${today()}"></div>
+      ${Number(g.pezzi)?`<div class="grow"><label class="f">+ Pezzi</label><input type="text" inputmode="decimal" id="guP" data-af></div>`:''}
+      ${Number(g.euro)?`<div class="grow"><label class="f">+ Euro</label><input type="text" inputmode="decimal" id="guE" ${Number(g.pezzi)?'':'data-af'}></div>`:''}</div>
+      <label class="f">Nota</label><input type="text" id="guN" placeholder="facoltativa">
+      <div class="acts"><button class="btn ok" onclick="goalUpd(${q(id)})">Registra aggiornamento</button></div></div>
+    <div class="card"><h3>Storico <span class="cnt">${ups.length}</span></h3>${ups.length?ups.map(u=>`<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)">
+      <div class="grow"><b>${fd(u.date)}</b> ${u.pezzi!==''&&u.pezzi!=null?' · +'+fmtV(u.pezzi,'pz'):''}${u.euro!==''&&u.euro!=null?' · +'+fmtV(u.euro,'€'):''}${u.note?`<div class="mut">${esc(u.note)}</div>`:''}</div>
+      <button class="icb" onclick="goalUpdDel(${q(id)},${q(u.id)})">🗑</button></div>`).join(''):'<div class="empty">Nessun aggiornamento.</div>'}</div>
+    <div class="acts"><button class="btn sec" onclick="closeModal();goalForm(${q(id)})">✎ Modifica obiettivo</button></div>`;
+  if(modals.length && modals[modals.length-1].goal===id) replaceModal(html); else { openModal(html); modals[modals.length-1].goal=id; }
+}
+function goalUpd(id){
+  const g=db.goals.find(x=>x.id===id);
+  const p=$('guP')?numv('guP'):'', e=$('guE')?numv('guE'):'';
+  if(Number.isNaN(p)||Number.isNaN(e)) return toast('Inserisci numeri validi');
+  if(p===''&&e==='') return toast('Inserisci pezzi o euro');
+  g.upd=g.upd||[]; g.upd.push({id:uid(), date:val('guD')||today(), pezzi:p, euro:e, note:val('guN'), ts:Date.now()});
+  save(); render(); goalOpen(id); toast('Obiettivo aggiornato');
+}
+function goalUpdDel(id,uidd){ confirmBox('Eliminare questo aggiornamento?', ()=>{ const g=db.goals.find(x=>x.id===id); g.upd=g.upd.filter(x=>x.id!==uidd); save(); render(); goalOpen(id); }); }
+
+/* IN LAVORAZIONE */
+function workAg(w){ return w.agId ? event_(w.agId) : null; }
+VIEWS.works = s => {
+  s.f = s.f || 'open';
+  const ws=[...(db.works||[])].filter(w=> s.f==='open' ? !w.done : w.done).sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+  return hdr('In lavorazione') + `<div class="wrap">
+    <div class="seg"><button class="${s.f==='open'?'on':''}" onclick="setP({f:'open'})">In corso</button><button class="${s.f==='done'?'on':''}" onclick="setP({f:'done'})">Completati</button></div>
+    <div class="card"><div class="list">${ws.length?ws.map(w=>{ const e=workAg(w); const n=w.due?diffDays(w.due,today()):null;
+      return `<div class="it" onclick="workOpen(${q(w.id)})"><div class="grow"><div class="t">${esc(w.title)}</div>
+        ${w.desc?`<div class="mut">${esc(firstLine(w.desc))}</div>`:''}
+        <div class="mut">${w.done?'<span class="s-g">✓ Completato il '+fd(w.doneDate)+'</span>':w.due?(n<0?`<span class="due-late">Scaduto il ${fd(w.due)}</span>`:n===0?'<span class="due-late">Scade oggi</span>':n<=3?`<span class="due-soon">Scade il ${fd(w.due)}</span>`:'Scadenza '+fd(w.due)):'Senza scadenza'}${e&&!w.done?' · 📒 in agenda':''}</div></div><span class="go">›</span></div>`; }).join(''):'<div class="empty">Nessun lavoro.</div>'}</div></div>
+  </div><button class="btn fab" onclick="workForm()">＋ NUOVO LAVORO</button>`;
+};
+function workForm(id){
+  const w = id ? db.works.find(x=>x.id===id) : {title:'',desc:'',due:''};
+  openModal(mh(id?'Modifica lavoro':'Nuovo lavoro')+`
+    <label class="f">Titolo <b>*</b></label><input type="text" id="wkT" data-af value="${esc(w.title)}">
+    <label class="f">Descrizione</label><textarea id="wkD">${esc(w.desc)}</textarea>
+    <label class="f">Scadenza (facoltativa)</label><input type="date" id="wkS" value="${w.due||''}">
+    <div class="mut" style="margin-top:6px">Con una scadenza il lavoro viene messo in AGENDA in quella data (e quindi anche in calendario e nei controlli di fine giornata).</div>
+    <div class="acts">${id?`<button class="btn del" onclick="workDel(${q(id)})">Elimina</button>`:''}<button class="btn" onclick="workSave(${id?q(id):'null'})">Salva</button></div>`);
+}
+function workSave(id){
+  const title=val('wkT'), desc=val('wkD'), due=val('wkS');
+  if(!title) return toast('Il titolo è obbligatorio');
+  let w;
+  if(id){ w=db.works.find(x=>x.id===id); Object.assign(w,{title,desc,due}); }
+  else{ w={id:uid(), title, desc, due, created:today(), done:false}; db.works.push(w); }
+  const e=workAg(w);
+  if(due && !w.done){
+    if(e && e.status==='open'){ e.date=due; e.title='🛠 '+title; }
+    else { const ne={id:uid(), type:'ag', date:due, time:'', clientId:null, title:'🛠 '+title, note:'', status:'open', workId:w.id, created:Date.now()}; db.events.push(ne); w.agId=ne.id; }
+  } else if(!due && e && e.status==='open'){ db.events=db.events.filter(x=>x.id!==e.id); w.agId=null; }
+  save(); closeModal(); render(); toast(due?'Lavoro salvato e messo in agenda':'Lavoro salvato');
+}
+function workOpen(id){
+  const w=db.works.find(x=>x.id===id); const e=workAg(w);
+  openModal(mh('🛠 '+esc(w.title))+`
+    ${w.desc?`<div style="white-space:pre-wrap;margin:8px 0">${esc(w.desc)}</div>`:''}
+    <div class="mut">Creato il ${fd(w.created)}${w.due?' · scadenza <b>'+fd(w.due)+'</b>':''}</div>
+    ${e?`<div class="card" style="margin-top:10px"><span class="badge b-ag">AGENDA</span> ${fdl(e.date)} — ${e.status==='closed'?'<span class="s-g">esitata: '+esc(e.esito)+'</span>':e.status==='riprog'?'riprogrammata':'da eseguire'}</div>`:''}
+    <div class="acts">
+      ${w.done?`<button class="btn sec" onclick="workDone(${q(id)},false)">↺ Riapri</button>`:`<button class="btn ok" onclick="workDone(${q(id)},true)">✓ COMPLETATO</button>`}
+      <button class="btn sec" onclick="closeModal();workForm(${q(id)})">✎ Modifica</button></div>`);
+}
+function workDone(id, v){
+  const w=db.works.find(x=>x.id===id); w.done=v; w.doneDate=v?today():null;
+  const e=workAg(w); if(v && e && e.status==='open'){ e.status='closed'; e.esito='Lavoro completato'; }
+  save(); closeModal(); render(); toast(v?'Lavoro completato':'Lavoro riaperto');
+}
+function workDel(id){
+  confirmBox('Eliminare il lavoro? Verrà tolto anche dall\'agenda se non ancora eseguito.', ()=>{
+    const w=db.works.find(x=>x.id===id); const e=workAg(w);
+    if(e && e.status==='open') db.events=db.events.filter(x=>x.id!==e.id);
+    db.works=db.works.filter(x=>x.id!==id); save(); closeAllModals(true); render(); });
+}
 
 /* ---------- 6) CHIUDI GIORNATA ---------- */
 function chiudiGiornata(forcedOnly){
