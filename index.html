@@ -213,7 +213,7 @@ function pathLabel(id){ return id.split(' > ').join(' › '); }
 /* ===================== DATI (solo sul telefono) ===================== */
 const KEY = 'job_db_v1';
 let db;
-function blank(){ return {clients:[], events:[], collabs:[], searches:[], goals:[], works:[], meta:{lastBackup:null, created:today()}}; }
+function blank(){ return {clients:[], events:[], collabs:[], searches:[], goals:[], works:[], signs:[], meta:{lastBackup:null, created:today()}}; }
 function load(){
   try{ db = JSON.parse(localStorage.getItem(KEY)) || blank(); }catch(e){ db = blank(); }
   const b = blank(); for(const k in b) if(db[k]==null) db[k]=b[k];
@@ -867,7 +867,8 @@ VIEWS.scad = () => {
   const ga=(db.goals||[]).filter(g=>g.scad>=today()).length, wa=(db.works||[]).filter(w=>!w.done).length;
   return hdr('Scadenziario') + `<div class="wrap big2">
     <button class="taskbtn" onclick="go('goals')">🎯 OBIETTIVI<span class="n ${ga?'':'z'}">${ga}</span></button>
-    <button class="taskbtn" onclick="go('works')">🛠 IN LAVORAZIONE<span class="n ${wa?'':'z'}">${wa}</span></button></div>`;
+    <button class="taskbtn" onclick="go('works')">🛠 IN LAVORAZIONE<span class="n ${wa?'':'z'}">${wa}</span></button>
+    <button class="taskbtn" onclick="go('firme')">✍️ FIRME<span class="n ${(db.signs||[]).length?'':'z'}">${(db.signs||[]).length}</span></button></div>`;
 };
 VIEWS.goals = s => {
   s.f = s.f || 'att';
@@ -927,6 +928,18 @@ function goalUpd(id){
   save(); render(); goalOpen(id); toast('Obiettivo aggiornato');
 }
 function goalUpdDel(id,uidd){ confirmBox('Eliminare questo aggiornamento?', ()=>{ const g=db.goals.find(x=>x.id===id); g.upd=g.upd.filter(x=>x.id!==uidd); save(); render(); goalOpen(id); }); }
+
+/* FIRME */
+VIEWS.firme = () => {
+  const ss=db.signs||[];
+  return hdr('Firme') + `<div class="wrap"><div class="card"><h3>Firme da raccogliere <span class="cnt">${ss.length}</span></h3>
+    <div class="row" style="margin-bottom:8px"><input type="text" id="sgN" data-af placeholder="Nuova firma da raccogliere…" onkeydown="if(event.key==='Enter')signAdd()"><button class="btn" onclick="signAdd()">+</button></div>
+    <ul class="bul">${ss.length?ss.map(x=>`<li><span class="dot"></span><div class="grow"><div style="white-space:pre-wrap;font-weight:600">${esc(x.text)}</div><div class="mut" style="font-size:12px">dal ${fd(x.created)}</div></div>
+      <button class="btn sm ok" onclick="signDone(${q(x.id)})">✓ Raccolta</button></li>`).join(''):'<li class="empty">Nessuna firma da raccogliere.</li>'}</ul></div></div>`;
+};
+function signAdd(){ const t=val('sgN'); if(!t) return; db.signs=db.signs||[]; db.signs.push({id:uid(), text:t, created:today()}); save(); render(); setTimeout(()=>$('sgN')&&$('sgN').focus(),30); }
+function signDone(id){ const x=db.signs.find(s=>s.id===id);
+  confirmBox('Firma raccolta: "'+x.text+'"? Verrà cancellata dall\'elenco.', ()=>{ db.signs=db.signs.filter(s=>s.id!==id); save(); render(); toast('Firma raccolta ✓'); }, 'Cancella'); }
 
 /* IN LAVORAZIONE */
 function workAg(w){ return w.agId ? event_(w.agId) : null; }

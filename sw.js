@@ -1,5 +1,5 @@
 // JOB – service worker: funziona anche offline
-const CACHE = 'job-v7';
+const CACHE = 'job-v8';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'
 ];
