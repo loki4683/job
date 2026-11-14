@@ -1406,6 +1406,19 @@ function gcalEvents(){
     out.push({key:'goal|'+g.id, title:'🎯 Obiettivo · '+g.title, date:g.scad, remindDays:7, color:11,
       desc:[g.pezzi?'Pezzi: '+g.pezzi:'', g.euro?'Euro: '+g.euro:''].filter(Boolean).join('\n')});
   }
+  /* obiettivi GIORNALIERI: un evento tutto-il-giorno ripetuto ogni giorno fino alla scadenza.
+     L'ultima riga "widget: …" la legge il widget Android "Promemoria" (avanzamento di oggi). */
+  const t=today();
+  for(const g of db.goals||[]){
+    if(g.per!=='g' || !g.scad || g.scad<t) continue;
+    const st=gStats(g); if(!st.ms.length) continue;
+    const start=g.start||g.created||t;
+    const pp=st.ms.map(m=>m.perT?m.curDone/m.perT*100:0), pct=Math.round(Math.min(...pp));
+    const det=st.ms.map(m=>fmtV(m.curDone,m.u)+' su '+fmtV(m.perT,m.u)).join(' · ');
+    out.push({key:'goalday|'+g.id, title:'🔥 '+g.title, date:start, color:11,
+      rrule:'FREQ=DAILY;UNTIL='+g.scad.replace(/-/g,''),
+      desc:'Obiettivo giornaliero fino al '+fd(g.scad)+'\nOggi ('+fd(t)+'): '+det+'\nwidget: obiettivo '+pct+'% @'+t+' | '+det});
+  }
   return out;
 }
 
