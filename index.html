@@ -165,6 +165,7 @@ ul.bul li .dot{width:7px;height:7px;border-radius:50%;background:var(--pri2);mar
 <div id="toast"></div>
 <input type="file" id="fileImp" accept="application/json,.json" hidden>
 
+<script src="gcal.js"></script>
 <script>
 'use strict';
 /* =====================================================================
@@ -221,6 +222,7 @@ function load(){
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(db)); }
   catch(e){ alertBox('Errore di salvataggio: memoria del telefono piena? Esegui subito un Export.'); }
+  GCAL.changed();
 }
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
@@ -1363,7 +1365,11 @@ function buildIcs(withPast){
   return {txt:L.map(icsFold).join('\r\n')+'\r\n', n};
 }
 function calModal(){
-  openModal(mh('📆 Esporta calendario')+`
+  openModal(mh('📆 Google Calendar')+`
+    ${GCAL.panel()}
+    <p class="mut" style="font-size:12px;margin-top:10px">Vengono inviati appuntamenti, contatti, eventi e agenda (dagli ultimi 30 giorni in poi), task dei collaboratori non eseguite e scadenze degli obiettivi. Nel titolo compare il nome del cliente; nessun altro dato del cliente oltre al cellulare nella descrizione.</p>
+    <hr style="border:0;border-top:1px solid #ddd;margin:14px 0">
+    <p><b>In alternativa</b>, file da importare a mano.</p>
     <p>Crea un file <b>.ics</b> con appuntamenti, contatti, eventi, agenda e task, da importare in Google Calendar.</p>
     <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" id="icsPast"> Includi anche gli impegni passati</label>
     <div class="choice"><button class="btn ok" onclick="doIcs()">⬇ Scarica file calendario</button>
@@ -1375,6 +1381,32 @@ function doIcs(){
   if(!n) return toast('Nessun impegno da esportare');
   downloadBlob(new Blob([txt],{type:'text/calendar;charset=utf-8'}), 'JOB calendario.ics');
   toast(n+' impegni esportati');
+}
+
+/* ===================== GOOGLE CALENDAR ===================== */
+function gcalEvents(){
+  const from=addDays(today(),-30), out=[];
+  for(const e of db.events){
+    if(!e.date || e.date<from || e.status==='riprog') continue;
+    const c = e.clientId ? client(e.clientId) : null, who = c ? cname(c) : '';
+    const desc=[];
+    if(e.type==='ag') desc.push(e.title||''); else { if(e.note) desc.push(e.note); if(c&&c.cell) desc.push('Cell: '+c.cell); }
+    if(e.status==='closed') desc.push('✓ Esitato'+(e.esito&&e.esito!=='RIPROGRAMMATO'?': '+e.esito:''));
+    const title = e.type==='ag' ? '📝 '+firstLine(e.title) : e.type==='evt' ? '🗓 '+(e.title||who) : (e.type==='app'?'📅 APP ':'📞 TEL ')+(who||e.title||'');
+    out.push({key:'ev|'+e.id, title:(e.status==='closed'?'✓ ':'')+title, date:e.date, time:e.type==='ag'?'':e.time, dur:e.type==='tel'?15:60,
+      desc:desc.join('\n'), remindMin:e.status==='open'&&e.time&&e.type!=='ag'?(e.type==='tel'?5:30):null, color:{app:9,tel:10,evt:3,ag:8}[e.type]});
+  }
+  for(const co of db.collabs) for(const t of co.tasks||[]){
+    if(!t.due || t.done) continue;
+    out.push({key:'task|'+t.id, title:'👥 TASK '+co.name+' · '+firstLine(t.text), date:t.due, remindDays:3, color:5,
+      desc:t.text+'\nAssegnata il '+fd(t.assigned)});
+  }
+  for(const g of db.goals||[]){
+    if(!g.scad || g.scad<from) continue;
+    out.push({key:'goal|'+g.id, title:'🎯 Obiettivo · '+g.title, date:g.scad, remindDays:7, color:11,
+      desc:[g.pezzi?'Pezzi: '+g.pezzi:'', g.euro?'Euro: '+g.euro:''].filter(Boolean).join('\n')});
+  }
+  return out;
 }
 
 /* ===================== AVVIO ===================== */
@@ -1390,6 +1422,7 @@ function startupChecks(){
   }
 }
 startupChecks();
+GCAL.init({app:'job', label:'JOB', calName:'JOB', events:gcalEvents, toast, btn:'btn ok', btn2:'btn sec', chipBottom:90});
 // se l'app resta aperta oltre la mezzanotte o torna in primo piano
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ render(); startupChecks(); } });
 </script>
