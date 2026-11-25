@@ -1345,7 +1345,7 @@ function buildIcs(withPast){
   for(const e of db.events){
     if(!e.date || e.date<from) continue;
     const c = e.clientId ? client(e.clientId) : null;
-    const who = c ? cname(c) : '';
+    const who = c ? (c.cognome||cname(c)) : ''; // sul calendario solo il cognome
     const desc = [];
     if(e.type==='ag'){ desc.push(e.title||''); }
     else { if(e.note) desc.push(e.note); if(c&&c.cell) desc.push('Cell: '+c.cell); }
@@ -1388,7 +1388,7 @@ function gcalEvents(){
   const from=addDays(today(),-30), out=[];
   for(const e of db.events){
     if(!e.date || e.date<from || e.status==='riprog') continue;
-    const c = e.clientId ? client(e.clientId) : null, who = c ? cname(c) : '';
+    const c = e.clientId ? client(e.clientId) : null, who = c ? (c.cognome||cname(c)) : ''; // sul calendario (e nel widget) solo il cognome
     const desc=[];
     if(e.type==='ag') desc.push(e.title||''); else { if(e.note) desc.push(e.note); if(c&&c.cell) desc.push('Cell: '+c.cell); }
     if(e.status==='closed') desc.push('✓ Esitato'+(e.esito&&e.esito!=='RIPROGRAMMATO'?': '+e.esito:''));
